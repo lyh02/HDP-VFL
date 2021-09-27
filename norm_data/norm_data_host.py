@@ -51,6 +51,7 @@ class NormDataHost(ModelBase):
 
         LOGGER.info("开始归一化数据")
         self.data_output = data_inst.join(self.norm_x[0],lambda x,y : Instance(features=np.true_divide(x.features,y),label=x.label))
+        return self.data_output
 
     def save_data(self):
         return self.data_output
