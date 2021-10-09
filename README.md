@@ -1,4 +1,4 @@
-# 论文复现完成
+# 论文复现完成,优化阶段进行中........
 复现论文：《Hybrid Differentially Private Federated Learning on Vertically Partitioned Data》.主要是复现到fate当中
 备注：这个项目是在fate框架上才可以运行，所以这里只给出核心代码。需要完整的配置文件的，请私聊我哦~（经过测试，可以在fate框架中正常跑通）。
 
