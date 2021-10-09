@@ -83,7 +83,7 @@ class LRModelWeightsGuest():
             data_shape += 1
         # 初始化模型参数
         self.w = np.random.rand(data_shape)
-        LOGGER.info("初始化模型参数self.w是：{}".format(self.w))
+        LOGGER.info("guest方初始化模型参数self.w是：{}".format(self.w))
 
     def compute_gradient(self,data_instances,ir_a,b):
         """
@@ -100,7 +100,6 @@ class LRModelWeightsGuest():
             result += result_table[1]
 
         #result就是最终的结果，类型应该是numpy数组
-        LOGGER.info("result的类型是：{},result的值是：{}".format(type(result),result))
         gradient_a = result / b
         return gradient_a
 
@@ -143,7 +142,8 @@ class LRModelWeightsGuest():
         partial_3 = epsilon
 
         sigma_b = partial_1 * partial_2 / partial_3
-
+        LOGGER.info("在guest方，IR_A的全局敏感度值:{}".format(partial_2))
+        LOGGER.info("在guest方，IR_A的方差sigma_b:{}".format(sigma_b))
         return loc,sigma_b
 
     def sec_intermediate_result(self,ir_a,loc,sigma_b):
@@ -164,6 +164,19 @@ class LRModelWeightsGuest():
             sec_result_1.append(test_tuple_1)
 
         #第二种方法
+        noise_gaussion = float(np.random.normal(loc, sigma_b) / ir_a.count())
+        sec_result_2 = []
+        for ir_a_tuple_1 in ir_a.collect():
+            test_tuple_1 = (ir_a_tuple_1[0], noise_gaussion)
+            sec_result_2.append(test_tuple_1)
+
+        #第三种方式
+        sec_result_3 = []
+        for ir_a_tuple_1 in ir_a.collect():
+            test_tuple_1 = (ir_a_tuple_1[0], float(np.random.normal(loc, sigma_b) / ir_a.count()))
+            sec_result_3.append(test_tuple_1)
+
+        #第二种方法
         # gaussian_noise = np.random.normal(loc, sigma_b, ir_a.count())
         # gaussian_noise.tolist()
         # sec_result_2 = []
@@ -175,10 +188,12 @@ class LRModelWeightsGuest():
         # -----------------------------------------------------------------
         # 将高斯噪声封装成Dtbale格式，切勿重新初始化一个session。直接用之前的就可以了
         # computing_session.init(work_mode=0, backend=0, session_id="gaussian id")
-        gaussian_noise = computing_session.parallelize(sec_result_1, partition=4, include_key=True)
-
+        gaussian_noise = computing_session.parallelize(sec_result_3, partition=4, include_key=True)
         # 扰动数据内积
         sec_result = ir_a.join(gaussian_noise, lambda x, y: x + y)
+        LOGGER.info("原始数据是：{}".format(list(ir_a.collect())))
+        LOGGER.info("高斯噪声是:{}".format(list(gaussian_noise.collect())))
+        LOGGER.info("扰动后，数据值是：{}".format(list(sec_result.collect())))
         return sec_result
 
     def intermediate_result(self,data_instances,sec_ir_b,w):
@@ -208,7 +223,6 @@ class LRModelWeightsGuest():
             self.w /= result
 
 
-
 class LRModelWeightsHost():
     def __init__(self,w = None):
         #host方没有偏置，偏置b都放在了guest方
@@ -220,7 +234,7 @@ class LRModelWeightsHost():
         """
         #这里的w格式是numpy数组
         self.w = np.random.rand(data_shape)
-        LOGGER.info("初始化模型参数self.w是：{}".format(self.w))
+        LOGGER.info("Host初始化模型参数self.w是：{}".format(self.w))
 
     def compute_gradient(self,data_instances,ir_a,b):
         result_tables = data_instances.join(ir_a, lambda x, y: x.features * y)
@@ -229,7 +243,6 @@ class LRModelWeightsHost():
             result += result_table[1]
 
         # result就是最终的结果，类型应该是numpy数组
-        LOGGER.info("result的最终类型是:{},它的值是：{}".format(type(result),result))
         gradient_b = result / b
         return gradient_b
 
@@ -242,7 +255,7 @@ class LRModelWeightsHost():
         w:numpy数组
         return:
         ----------------
-        Dtable个数的数据
+        Dtable，值为wx
         """
         ir_b = data_instances.mapValues(lambda x : np.dot(x.features,w))
         return ir_b
@@ -260,12 +273,24 @@ class LRModelWeightsHost():
         #这里的sec_result是一个列表，里面存取的都是元组，元组的第一项都是当前批次数据的ID，第二项便是高斯噪声
         #这里的疑问点在于是否可以
 
-        #第一种添加噪声的方式
+        #第一种添加噪声的方式，噪声会很大
         sec_result_1 = []
         for ir_b_tuple_1 in ir_b.collect():
             test_tuple_1 = (ir_b_tuple_1[0],np.random.normal(loc,sigma_a))
             sec_result_1.append(test_tuple_1)
 
+        # 第二种方法，噪声均分
+        noise_gaussion = float(np.random.normal(loc, sigma_a) / ir_b.count())
+        sec_result_2 = []
+        for ir_a_tuple_1 in ir_b.collect():
+            test_tuple_1 = (ir_a_tuple_1[0], noise_gaussion)
+            sec_result_2.append(test_tuple_1)
+
+        #第三种方式，噪声随机均分
+        sec_result_3 = []
+        for ir_a_tuple_1 in ir_b.collect():
+            test_tuple_1 = (ir_a_tuple_1[0], float(np.random.normal(loc, sigma_a) / ir_b.count()))
+            sec_result_3.append(test_tuple_1)
         # #第二种添加噪声的方式
         # gaussian_noise = np.random.normal(loc, sigma_a, ir_b.count())
         # gaussian_noise.tolist()
@@ -274,13 +299,16 @@ class LRModelWeightsHost():
         # for ir_b_tuple_2 in ir_b.collect():
         #     test_tuple_2 = (ir_b_tuple_2[0],gaussian_noise[int(ir_b_tuple_2[0]) - int(first_data_id)])
         #     sec_result_2.append(test_tuple_2)
+
         #-----------------------------------------------------------------
         #将高斯噪声封装成Dtbale格式
         # computing_session.init(work_mode=0,backend=0,session_id="gaussian id")
-        gaussian_noise = computing_session.parallelize(sec_result_1,partition=4,include_key=True)
-
+        gaussian_noise = computing_session.parallelize(sec_result_3,partition=4,include_key=True)
         #扰动数据内积
+        LOGGER.info("原始数据是:{}".format(list(ir_b.collect())))
+        LOGGER.info("高斯噪声为：{}".format(list(gaussian_noise.collect())))
         sec_result = ir_b.join(gaussian_noise,lambda x,y : x + y)
+        LOGGER.info("添加完噪声后：{}".format(list(sec_result.collect())))
         return sec_result
 
     def gaussian(self,delta,epsilon,L,e,T,eta,b,k):
@@ -308,6 +336,8 @@ class LRModelWeightsHost():
         partial_3 = epsilon
         sigma_a = partial_1 * partial_2 / partial_3
 
+        LOGGER.info("站在host方，IR_B的全局敏感度值:{}".format(partial_2))
+        LOGGER.info("站在host方，IR_B的方差是:{}".format(sigma_a))
         return loc,sigma_a
 
     def norm_clip(self, k):
