@@ -1,4 +1,5 @@
 import copy
+import numpy as np
 
 from federatedml.model_base import ModelBase
 from federatedml.transfer_variable.transfer_class.hdp_vfl_transfer_variable import HdpVflTransferVariable
@@ -9,18 +10,26 @@ from federatedml.util import abnormal_detection
 from federatedml.statistic import data_overview
 from federatedml.linear_model.linear_model_weight import LRModelWeightsHost
 from federatedml.util import consts
-
+from federatedml.protobuf.generated import hdp_vfl_model_meta_pb2,hdp_vfl_model_param_pb2
 
 class HdpVflHost(ModelBase):
     def __init__(self):
         super(HdpVflHost, self).__init__()
         self.batch_generator = Host()
         self.model_param = hdp_vfl_param.HdpVflParam()
+        self.header = None
         self.model = None
+        #以下三个为传输变量
         self.ir_a = None
         self.ir_b = None
+        self.host_wx = None
 
+        self.data_shape = None
 
+    def get_header(self,data_instances):
+        if self.header is not None:
+            return self.header
+        return data_instances.schema.get("header")
 
     def _init_model(self, params):
         self.epsilon = params.epsilon
@@ -37,6 +46,56 @@ class HdpVflHost(ModelBase):
         self.k_y = params.k_y
         # 对传输变量进行赋值
         self.transfer_variable = HdpVflTransferVariable()
+
+    def _get_meta(self):
+        meta_protobuf_obj = hdp_vfl_model_meta_pb2.HdpVflModelMeta(epsilon=self.epsilon,
+                                                                   delta=self.delta,
+                                                                   L=self.L,
+                                                                   beta_theta=self.beta_theta,
+                                                                   beta_y=self.beta_y,
+                                                                   e=self.e,
+                                                                   r=self.r,
+                                                                   k=self.k,
+                                                                   learning_rate=self.learning_rate,
+                                                                   lamb=self.lamb,
+                                                                   k_y=self.k_y)
+        return meta_protobuf_obj
+
+    def _get_param(self):
+        """
+        用来保存模型最终的训练结果信息,经过测试，运行正确
+        """
+        weight_dict = {}
+        weight = {}
+        LOGGER.info("self.data_output的值是：{}".format(self.data_output))
+        for i in range(self.data_shape):
+            result = "w" + str(i)
+            weight_dict[result] = self.model.w[i]
+        weight["weight"] = weight_dict
+        param_protobuf_obj = hdp_vfl_model_param_pb2.HdpVflModelParam(**weight)
+
+        return param_protobuf_obj
+
+    def export_model(self):
+        meta_obj = self._get_meta()
+        param_obj = self._get_param()
+        result = {
+            "HdpVflMeta": meta_obj,
+            "HdpVflParam": param_obj
+        }
+        return result
+
+    def load_model(self, model_dict):
+        """
+        这个函数是用来预测的时候才会被调用的，主要是用于将之前模型训练的相关结果拿出来，这里仅拿出来weight
+        """
+        result_obj = list(model_dict.get('model').values())[0].get("HdpVflParam")
+        # 将值取出来，搞成数组的形式，然后传给self.data_output,再实际测试是否赋值给self.data_output
+        self.data_output = []
+        for i in range(len(result_obj.weight)):
+            result = "w" + str(i)
+            self.data_output.append(result_obj.weight[result])
+        self.data_output = np.array(self.data_output)
 
     @staticmethod
     def load_data(data_instance):
@@ -59,6 +118,7 @@ class HdpVflHost(ModelBase):
     def register_gradient_sync(self,transfer_variable):
         self.ir_a = transfer_variable.ir_a
         self.ir_b = transfer_variable.ir_b
+        self.host_wx = transfer_variable.host_wx.disable_auto_clean()
 
     def fit(self, data_instances):
         LOGGER.info("开始纵向逻辑回归")
@@ -73,6 +133,9 @@ class HdpVflHost(ModelBase):
         self.model = LRModelWeightsHost()
         self.model.initialize(data_shape)
 
+        #获取数据的特征形状
+        self.data_shape = data_overview.get_features_shape(data_instances)
+
         #批处理模块初始化
         self.batch_generator.register_batch_generator(self.transfer_variable)
         suffix = (data_instances.count(),self.r)
@@ -82,10 +145,12 @@ class HdpVflHost(ModelBase):
         self.register_gradient_sync(self.transfer_variable)
 
         #开始正式的循环迭代的阶段
-        iteration = 0
+        iteration = 0 #用来记录epoches次数
+        suffix_tag = 0 #用来表示传输变量表示，它的值也是最终的迭代次数
         test_suffix = ("iter",)
         while iteration <= self.e:
             for data_inst in self.batch_generator.generator_batch_data():
+                LOGGER.info("----------------当前迭代次数:{}-------------------".format(suffix_tag))
                 LOGGER.info("开始计算数据的内积")
                 ir_b = self.model.compute_forwards(data_inst,self.model.w)
 
@@ -95,7 +160,7 @@ class HdpVflHost(ModelBase):
 
                 LOGGER.info("开始对数据添加噪声")
                 sec_ir_b = self.model.sec_intermediate_result(ir_b,loc,sigma)
-                suffix_t = test_suffix + (iteration,)
+                suffix_t = test_suffix + (suffix_tag,)
                 LOGGER.info("当前的suffix_t值为：{}".format(suffix_t))
                 LOGGER.info("开始发送给guest端sec_it_b")
                 # test_transfer.send(obj=sec_ir_b,role=consts.GUEST,suffix=suffix_t)
@@ -113,7 +178,9 @@ class HdpVflHost(ModelBase):
                 LOGGER.info("开始进行梯度剪切部分")
                 self.model.norm_clip(self.k)
 
-                iteration += 1
+                suffix_tag += 1
+
+            iteration += 1
 
         LOGGER.info("训练正式结束")
         LOGGER.info("host方的模型参数：{}".format(self.model.w))
@@ -122,3 +189,26 @@ class HdpVflHost(ModelBase):
 
     def save_data(self):
         return self.data_output
+
+    def predict(self, data_inst):
+        """
+        纵向逻辑回归的预测部分,由于host这里只作为参与方，所以没有输出
+        Parameters
+        -------------------
+        data_inst:Dtable,数据的输入
+        """
+        LOGGER.info("------------------开始预测阶段----------------------")
+        self._abnormal_detection(data_inst)
+        self.data_shape = data_overview.get_features_shape(data_inst)
+        #注册传输变量
+        self.register_gradient_sync(self.transfer_variable)
+        #预测阶段相当于重新初始化一波，所以这个时候务必注意将用到的东西重新初始化。例如最重要的weight
+        #初始化模型参数
+        self.model = LRModelWeightsHost()
+        self.model.w = self.data_output
+        data_instances = data_inst
+        LOGGER.info("开始计算host方的内积wx")
+        wx_host = data_instances.mapValues(lambda x : np.dot(x.features,self.data_output))
+        LOGGER.info("开始将host方的内积wx发送给guest方")
+        self.host_wx.remote(wx_host,role=consts.GUEST,idx=-1)
+        LOGGER.info("host方完成自己的任务")
