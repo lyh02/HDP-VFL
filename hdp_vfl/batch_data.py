@@ -12,8 +12,8 @@ class Guest():
         batch_data_index_transfer：用来传输数据对应的ID，便于双方进行同步数据
         batch_info：主要用来传俩信息，其一是多少批数据；其二是每批多少数据
         """
-        self.batch_data_index_transfer = transfer_variables.batch_data_index.disable_auto_clean()
-        self.batch_info = transfer_variables.batch_info.disable_auto_clean()
+        self.batch_data_index_transfer = transfer_variables.batch_data_index
+        self.batch_info = transfer_variables.batch_info
 
     def sync_batch_index(self,batch_index,suffix=tuple()):
         self.batch_data_index_transfer.remote(obj=batch_index,role=consts.HOST,suffix=suffix)
@@ -32,7 +32,7 @@ class Guest():
         self.batch_nums = self.mini_batch_obj.batch_nums
 
         LOGGER.info("一共多少批数据：{},每批数据量为:{}".format(self.batch_nums,batch_size))
-        batch_info = {"batch_size": batch_size, "batch_num": self.batch_nums}
+        batch_info = {"batch_size": batch_size, "batch_nums": self.batch_nums}
         self.sync_batch_info(batch_info,suffix=suffix)
 
         index_generator = self.mini_batch_obj.mini_batch_data_generator(index="index")
@@ -61,38 +61,39 @@ class Host():
         batch_data_index_transfer：用来接收数据对应的ID，便于双方进行同步数据
         batch_info：主要用来接受信息，其一是多少批数据；其二是每批多少数据
         """
-        self.batch_data_index_transfer = transfer_variables.batch_data_index.disable_auto_clean()
-        self.batch_info = transfer_variables.batch_info.disable_auto_clean()
+        self.batch_data_index_transfer = transfer_variables.batch_data_index
+        self.batch_info = transfer_variables.batch_info
 
     def sync_batch_index(self,suffix=tuple()):
         #这里的get直接得到的就是字典，不用列表封装了。这里的官方API文档是错的
-        batch_index = self.batch_data_index_transfer.get(idx=0,suffix=suffix)
+        batch_index = self.batch_data_index_transfer.get(suffix=suffix)
         return batch_index
 
     def sync_batch_info(self,suffix=tuple()):
         LOGGER.debug("在这个信息中，suffix是：{}".format(suffix))
-        batch_info = self.batch_info.get(idx=0,suffix=suffix)
+        batch_info = self.batch_info.get(suffix=suffix)
         #对象是迭代类型的时候，对象类型不需要转换为list
-        batch_size = batch_info.get("batch_size")
+        batch_size = batch_info[0].get("batch_size")
         if batch_size < consts.MIN_BATCH_SIZE and batch_size != -1:
             raise ValueError("当前的batch_size太小了，值为:{}".format(batch_size))
         return batch_info
 
     def initialize_batch_generator(self,data_inst,suffix=tuple()):
         batch_info = self.sync_batch_info(suffix)
-        self.batch_nums = batch_info.get("batch_num")
+        LOGGER.info("从guest方接收到的batch_info信息是：{}".format(batch_info))
+        self.batch_nums = batch_info[0].get("batch_nums")
 
         for batch_index in range(self.batch_nums):
             batch_suffix = suffix + (batch_index,)
             batch_data_index = self.sync_batch_index(batch_suffix)
-            batch_data_inst = batch_data_index.join(data_inst,lambda x,y : y)
+            batch_data_inst = batch_data_index[0].join(data_inst,lambda x,y : y)
             self.batch_data_insts.append(batch_data_inst)
 
     def generator_batch_data(self):
         batch_index = 0
 
         for batch_data_inst in self.batch_data_insts:
-            LOGGER.info("batch_num:{}，batch_data_inst size是:{}".format(batch_index,batch_data_inst.count()) )
+            LOGGER.info("当前的batch_num是:{}，batch_data_inst size是:{}".format(batch_index,batch_data_inst.count()) )
             yield batch_data_inst
             batch_index += 1
 
@@ -101,7 +102,7 @@ class MiniBatch():
     """
     这个部分主要用来生成小批量数据
     """
-    def __init__(self,data_insts,batch_size=200):
+    def __init__(self,data_insts,batch_size):
         self.all_batch_data = None #用来存批量数据，数据结构是列表，元素是Dtable
         self.all_index_data = None #用来存批量数据对应的索引，数据结构是列表，元素是Dtable
         self.data_insts = data_insts
@@ -177,3 +178,5 @@ class MiniBatch():
         data_ids_iter = sorted(data_ids_iter,key=lambda x : x[0])
 
         return data_ids_iter,data_size
+
+
