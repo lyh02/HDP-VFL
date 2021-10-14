@@ -21,6 +21,7 @@ class Guest():
     def sync_batch_info(self,batch_info,suffix=tuple()):
         #batch_info本身就是一个字典迭代类型
         self.batch_info.remote(obj=batch_info,role=consts.HOST,suffix=suffix)
+        self.batch_info.remote(obj=batch_info,role=consts.ARBITER,suffix=suffix)
 
     def initialize_batch_generator(self,data_instances,batch_size,suffix=tuple()):
         """
@@ -97,6 +98,17 @@ class Host():
             yield batch_data_inst
             batch_index += 1
 
+class Arbiter():
+    def __init__(self):
+        self.batch_nums = None
+
+    def initialize_batch_generator(self,transfer_variable,suffix=tuple()):
+        batch_info = transfer_variable.get(idx=-1,suffix=suffix)
+        self.batch_nums = batch_info[0].get('batch_nums')
+
+    def generator_batch_data(self):
+        for i in range(self.batch_nums):
+            yield i
 
 class MiniBatch():
     """
@@ -141,8 +153,8 @@ class MiniBatch():
                     batch_data_ids.append(current_batch_ids)
                     current_batch_ids = []
             #后续会有剩余的一批数据不够一波，但是还是要把它当成一波存起来
-            if current_data_nums == data_size and len(current_batch_ids) != 0:
-                batch_data_ids.append(current_batch_ids)
+            # if current_data_nums == data_size and len(current_batch_ids) != 0:
+            #     batch_data_ids.append(current_batch_ids)
 
         self.batch_nums = len(batch_data_ids)
         all_batch_data = []
