@@ -1,0 +1,88 @@
+{
+  "dsl_version": "2",
+  "initiator": {
+    "role": "guest",
+    "party_id": 10000
+  },
+  "role": {
+    "guest": [10000],
+    "host": [9999],
+    "arbiter": [9999]
+  },
+  "job_parameters": {
+    "common": {
+      "work_mode": 0,
+      "backend": 0,
+      "task_parallelism": 1,
+      "task_cores": 6,
+      "computing_partitions": 8
+    }
+  },
+  "component_parameters": {
+    "common": {
+      "intersection_0": {
+        "intersect_method": "raw",
+        "sync_intersect_ids": true,
+        "only_output_key": false
+      },
+      "hdp_vfl_0": {
+        "e": 100,
+        "epsilon": 1
+      }
+    },
+    "role": {
+      "guest": {
+        "0": {
+                    "reader_0": {
+                        "table": {
+                            "name": "guest_data_train",
+                            "namespace": "experiment"
+                        }
+                    },
+                    "reader_1": {
+                        "table": {
+                            "name": "guest_data_eval",
+                            "namespace": "experiment"
+                        }
+                    },
+                    "dataio_0": {
+                      "with_label": true,
+                      "label_name": "y",
+                      "label_type": "int",
+                      "output_format": "dense"
+                    },
+                    "dataio_1": {
+                      "with_label": true,
+                      "label_name": "y",
+                      "label_type": "int",
+                      "output_format": "dense"
+                    }
+                }
+      },
+      "host": {
+        "0": {
+                    "reader_0": {
+                        "table": {
+                            "name": "host_data_train",
+                            "namespace": "experiment"
+                        }
+                    },
+                    "reader_1": {
+                        "table": {
+                            "name": "host_data_eval",
+                            "namespace": "experiment"
+                        }
+                    },
+                    "dataio_0": {
+                        "with_label": false,
+                        "output_format": "dense"
+                    },
+                    "dataio_1": {
+                      "with_label": false,
+                      "output_format": "dense"
+                    }
+                }
+      }
+    }
+  }
+}
