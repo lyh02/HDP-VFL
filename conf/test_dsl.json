@@ -1,0 +1,124 @@
+{
+  "components": {
+    "reader_0": {
+      "module": "Reader",
+      "output": {
+          "data": [
+              "data"
+          ]
+      }
+    },
+    "reader_1": {
+      "module": "Reader",
+      "output": {
+          "data": [
+              "data"
+          ]
+      }
+    },
+    "dataio_0": {
+            "module": "DataIO",
+            "input": {
+                "data": {
+                    "data": [
+                        "reader_0.data"
+                    ]
+                }
+            },
+            "output": {
+                "data": [
+                    "data"
+                ],
+                "model": [
+                    "model"
+                ]
+            }
+        },
+    "dataio_1": {
+            "module": "DataIO",
+            "input": {
+                "data": {
+                    "data": [
+                        "reader_1.data"
+                    ]
+                },
+                "model": [
+                    "dataio_0.model"
+                ]
+            },
+            "output": {
+                "data": [
+                    "data"
+                ],
+                "model": [
+                    "model"
+                ]
+            }
+        },
+    "intersection_0": {
+            "module": "Intersection",
+            "input": {
+                "data": {
+                    "data": [
+                        "dataio_0.data"
+                    ]
+                }
+            },
+            "output": {
+                "data": [
+                    "data"
+                ]
+            }
+        },
+    "intersection_1": {
+            "module": "Intersection",
+            "input": {
+                "data": {
+                    "data": [
+                        "dataio_1.data"
+                    ]
+                }
+            },
+            "output": {
+                "data": [
+                    "data"
+                ]
+            }
+        },
+    "hdp_vfl_0": {
+      "module": "HdpVfl",
+      "input": {
+        "data": {
+          "train_data": ["intersection_0.data"]
+        }
+      },
+      "output": {
+        "data": ["data"],
+        "model": ["model"]
+      }
+    },
+    "hdp_vfl_1": {
+      "module": "HdpVfl",
+      "input": {
+        "data": {
+          "test_data": ["intersection_1.data"]
+        },
+        "model": ["hdp_vfl_0.model"]
+      },
+      "output": {
+        "data": ["data"]
+      }
+    },
+    "evaluation_0": {
+      "module": "Evaluation",
+      "input": {
+        "data": {
+          "data": ["hdp_vfl_0.data","hdp_vfl_1.data"]
+        }
+      },
+      "output": {
+        "data": ["data"]
+      }
+    }
+  }
+}
