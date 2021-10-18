@@ -1,0 +1,20 @@
+//版本号
+syntax = "proto3";
+//防止冲突
+package com.webank.ai.fate.core.mlmodel.buffer;
+option java_outer_classname = "HdpVflModelMetaProto";
+//模型参数
+message HdpVflModelMeta{
+  double epsilon = 1;
+  double delta = 2;
+  int32 L = 3;
+  double beta_theta = 4;
+  double beta_y = 5;
+  int32 e = 6;
+  int32 r = 7;
+  int32 k = 8;
+  double learning_rate = 9;
+  double lamb = 10;
+  int32 k_y = 11;
+}
+
